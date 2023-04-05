@@ -8,7 +8,7 @@ class RobotFrame:
     Create a tk.Frame and add sliders corresponding to robot joints.
     Return the tk.Frame, that must be added to the container.
     '''
-    NROW = 8 # Number of sliders per row
+    NROW = 6 # Number of sliders per row
     
     def __init__(self,robotModel,q0,viz):
         self.rmodel = robotModel

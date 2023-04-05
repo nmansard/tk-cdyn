@@ -4,11 +4,18 @@ import pinocchio as pin
 import hppfcl
 import example_robot_data as robex
 import numpy as np
-from util_load_robots import defRootName,addXYZAxisToJoints,replaceGeomByXYZAxis,freeze,renameConstraints
+from util_load_robots import defRootName,addXYZAxisToJoints,replaceGeomByXYZAxis,freeze,renameConstraints,classic_cassie_blocker
 
 cassie=robex.load('cassie')
+renameConstraints(cassie)
+cassie.constraint_models = [ cm for cm in cassie.constraint_models
+                             if cm.name not in util_load_robots.classic_cassie_unecessary_constraints ]]
 defRootName(cassie.model,'cassie')
 freeze(cassie,'left','standing',rebuildData=False)
+for k in classic_cassie_blocker:
+    assert(len([ n for n in cassie.model.names if k in n])>0)
+    freeze(cassie,k,'standing',rebuildData=False)
+
 addXYZAxisToJoints(cassie.model,cassie.visual_model)
 cassie.rebuildData()
 cassie.initViewer(loadModel=True)

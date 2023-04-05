@@ -5,22 +5,32 @@ import hppfcl
 import example_robot_data as robex
 import numpy as np
 
-from util_load_robots import defRootName,addXYZAxisToJoints,replaceGeomByXYZAxis,freeze,renameConstraints
+from util_load_robots import defRootName,addXYZAxisToJoints,replaceGeomByXYZAxis,freeze,renameConstraints,classic_cassie_unecessary_constraints,classic_cassie_blocker,addXYZAxisToConstraints,fixCassieConstraints
 
 cassie=robex.load('cassie')
+fixCassieConstraints(cassie)
 defRootName(cassie.model,'cassie')
+renameConstraints(cassie)
+addXYZAxisToConstraints(cassie.model,cassie.visual_model,cassie.constraint_models)
+cassie.constraint_models = [ cm for cm in cassie.constraint_models
+                             if cm.name not in classic_cassie_unecessary_constraints ]
 freeze(cassie,'left','standing',rebuildData=False)
-freeze(cassie,'-ip','standing',rebuildData=False)
-cassie.constraint_models = cassie.constraint_models[3:4]
+for k in classic_cassie_blocker:
+    assert(len([ n for n in cassie.model.names if k in n])>0)
+    freeze(cassie,k,'standing',rebuildData=False)
+
+cassie.full_constraint_models = cassie.constraint_models
+cassie.full_constraint_datas = { cm: cm.createData() for cm in cassie.constraint_models }
+cassie.constraint_models = [ cm for cm in cassie.constraint_models
+                             if cm.name=='right-achilles-spring-joint,right-tarsus-spring-joint']
 addXYZAxisToJoints(cassie.model,cassie.visual_model)
-for cm in cassie.constraint_models:
-    cm.type = pin.ContactType.CONTACT_3D
 cassie.rebuildData()
 cassie.initViewer(loadModel=True)
 replaceGeomByXYZAxis(cassie.visual_model,cassie.viz)
 cassie.display(cassie.q0)
-renameConstraints(cassie)
-cassie.constraint_datas = [ cm.createData() for cm in cassie.constraint_models]
+cassie.constraint_datas = [ cassie.full_constraint_datas[cm] for cm in cassie.constraint_models ]
+
+
 
 ### CONSTRAINTS
 
@@ -71,9 +81,6 @@ cv = casadi.SX.sym("v",cassie.casmodel.nv,1)
 caspin.forwardKinematics(cassie.casmodel,cassie.casdata,cq)
 
 integrate = casadi.Function('integrate', [cq,cv],[ caspin.integrate(cassie.casmodel,cq,cv) ])
-constraint = casadi.Function('constraint', [cq],[ constraintsResidual(cassie.casmodel,cassie.casdata,
-                                                                      cassie.constraint_models,cassie.constraint_datas,cq,
-                                                                      False,caspin) ])
 
 
 ### DG
@@ -95,6 +102,14 @@ class ProjectConfig:
         Project an input configuration <qref> to the nearby feasible configuration
         If <iv> is not null, then the DOF #iv is set as hard constraints, while the other are moved.
         '''
+        if len(cassie.constraint_models)==0:
+            return self.qref
+
+        
+        constraint = casadi.Function('constraint', [cq],[ constraintsResidual(cassie.casmodel,cassie.casdata,
+                                                                              cassie.constraint_models,cassie.constraint_datas,cq,
+                                                                              False,caspin) ])
+        
         self.opti = opti = casadi.Opti()
 
         # Decision variables
@@ -102,9 +117,11 @@ class ProjectConfig:
         self.vq = vq = integrate(cassie.q0,vdq)
 
         # Cost and constraints
-        totalcost = 0 #casadi.sumsqr(vq-self.qref)/100
-        #opti.subject_to( constraint(vq) == 0 )
-        totalcost += casadi.sumsqr(constraint(vq))
+        totalcost = 0 
+        totalcost = casadi.sumsqr(vq-self.qref)
+        opti.subject_to( constraint(vq) == 0 )
+
+        #totalcost += casadi.sumsqr(constraint(vq))
 
         # Solve
         opti.solver("ipopt") # set numerical backend
@@ -147,6 +164,7 @@ class RobotConstraintFrame(RobotFrame):
         cassieFrame.resetConfiguration(q)
         cassieFrame.display()
         
+#'''
 root = tk.Tk()
 root.bind('<Escape>', lambda ev: root.destroy())
 root.title("Cassie")
@@ -154,9 +172,83 @@ cassieFrame = RobotConstraintFrame(cassie.model,cassie.q0,cassie)
 cassieFrame.createSlider(root)
 cassieFrame.createRefreshButons(root)
 
-reset_button = tk.Button(root, text="Reset", command=resetAndDisp)
+optimFrame = tk.Frame(root)
+optimFrame.pack(side=tk.BOTTOM)
+reset_button = tk.Button(optimFrame, text="Reset", command=resetAndDisp)
 reset_button.pack(side=tk.LEFT, padx=10, pady=10)
-optim_button = tk.Button(root, text="Optim", command=computeConstrainedConfig)
+optim_button = tk.Button(optimFrame, text="Optim", command=computeConstrainedConfig)
 optim_button.pack(side=tk.LEFT, padx=10, pady=10)
 
+constraintWindow = tk.Toplevel()
+constraintWindow.bind('<Escape>', lambda ev: root.destroy())
+
+class CheckboxConstraintCmd:
+    def __init__(self,bvar,cm):
+        self.bvar = bvar
+        self.cm = cm
+    def __call__(self):
+        if self.bvar.get():
+            print(f'Activate {self.cm.name}' )
+            assert(self.cm not in cassie.constraint_models)
+            cassie.constraint_models.append(self.cm)
+            cassie.constraint_datas = [ cassie.full_constraint_datas[cm] for cm in cassie.constraint_models ]
+        else:
+            print(f'Deactivate {self.cm.name}' )
+            assert(self.cm in cassie.constraint_models)
+            cassie.constraint_models.remove(self.cm)
+        cassie.constraint_datas = [ cassie.full_constraint_datas[cm] for cm in cassie.constraint_models ]
+
+class CheckboxDisplayConstraintCmd:
+    def __init__(self,bvar,cm,vm,viz):
+        self.bvar = bvar
+        self.cm = cm
+        self.viz = viz
+        # Get viewer object names with pinocchio convention
+        idxs = [ vm.getGeometryId(f'XYZ_cst_{cm.name}_1'),
+                 vm.getGeometryId(f'XYZ_cst_{cm.name}_2') ]
+        self.gname = [ viz.getViewerNodeName(vm.geometryObjects[idx],pin.VISUAL)
+                       for idx in idxs ]
+    def __call__(self):
+        print(f'Set display {self.cm.name} to {self.bvar.get()}' )
+        for n in self.gname:
+            self.viz.viewer.gui.setVisibility(n,'ON' if self.bvar.get() else 'OFF')
+            
+constraintFrame = tk.Frame(constraintWindow)
+constraintFrame.pack(side=tk.BOTTOM)
+actLabel = tk.Label(constraintFrame,text='active')
+actLabel.grid(row=0,column=1)
+dispLabel = tk.Label(constraintFrame,text='display')
+dispLabel.grid(row=0,column=2)
+
+for i,cm in enumerate(cassie.full_constraint_models):
+    cstLabel = tk.Label(constraintFrame,text=cm.name)
+    cstLabel.grid(row=i+1,column=0)
+    
+    active_constraint_var = tk.BooleanVar(value=cm in cassie.constraint_models)
+    constraint_checkbox = tk.Checkbutton(constraintFrame,variable=active_constraint_var,
+                                         command=CheckboxConstraintCmd(active_constraint_var,cm))
+    #constraint_checkbox.pack(side=tk.LEFT, padx=1, pady=10)
+    constraint_checkbox.grid(row=i+1, column=1)
+
+    display_constraint_var = tk.BooleanVar(value=cm in cassie.constraint_models)
+    display_constraint_cmd = CheckboxDisplayConstraintCmd(display_constraint_var,cm,cassie.visual_model,cassie.viz)
+    display_constraint_cmd()
+    display_constraint_checkbox = tk.Checkbutton(constraintFrame,variable=display_constraint_var,
+                                                 command=display_constraint_cmd)
+    display_constraint_checkbox.grid(row=i+1, column=2)
+
+
 root.mainloop()
+#'''
+
+model = cassie.model
+data = cassie.data
+cm = cassie.constraint_models[0]
+cd = pin.RigidConstraintData(cm)
+q = cassie.q0
+
+pin.forwardKinematics(model, data, q)
+pin.computeAllTerms(model, data, q, np.zeros(model.nv))
+J = pin.getConstraintJacobian(model,data,cm,cd)
+pin.SE3.__repr__=pin.SE3.__str__
+np.set_printoptions(precision=2, linewidth=300, suppress=True,threshold=1e6)

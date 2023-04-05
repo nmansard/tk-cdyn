@@ -22,7 +22,21 @@ def addXYZAxisToJoints(rm,vm,basename='XYZ'):
         if i==0:continue
         vm.addGeometryObject(pin.GeometryObject(f'{basename}_{name}',i,pin.SE3.Identity(),hppfcl.Sphere(.001))) 
 
-def replaceGeomByXYZAxis(vm,viz,prefix='XYZ_'):
+def addXYZAxisToConstraints(rm,vm,cms,basename='XYZ_cst'):
+    '''
+    Add a sphere object to each joint in the visual model.
+    rm: robot model
+    vm: visual model
+    cms: constraint models (in a list)
+    basename: the prefix of the new geometry objects (suffix are the joint names).
+    '''
+    for cm in cms:
+        i = cm.joint1_id
+        vm.addGeometryObject(pin.GeometryObject(f'{basename}_{cm.name}_1',i,cm.joint1_placement,hppfcl.Sphere(.001))) 
+        i = cm.joint2_id
+        vm.addGeometryObject(pin.GeometryObject(f'{basename}_{cm.name}_2',i,cm.joint2_placement,hppfcl.Sphere(.001))) 
+
+def replaceGeomByXYZAxis(vm,viz,prefix='XYZ_',visible=False):
     '''
     XYZaxis visuals cannot be set from URDF in Gepetto viewer. This function is used
     to replace some geometry objects with proper prefix by XYZAxis visuals.
@@ -36,7 +50,8 @@ def replaceGeomByXYZAxis(vm,viz,prefix='XYZ_'):
         if g.name[:len(prefix)] == prefix:
             gname = viz.getViewerNodeName(g,pin.VISUAL)
             gv.deleteNode(gname,True)
-            gv.addXYZaxis(gname,[1.,1,1.,1.],.01,.2) 
+            gv.addXYZaxis(gname,[1.,1,1.,1.],.01,.2)
+            gv.setVisibility(gname,'OFF')
 
 def freeze(robot,key,referenceConfigurationName=None,rebuildData=True):
     '''
@@ -45,7 +60,7 @@ def freeze(robot,key,referenceConfigurationName=None,rebuildData=True):
     key: the string to search in the joint names to lock.
     '''
     idx = [ i for i,n in enumerate(robot.model.names) if key in n] # to lock
-    rmbak = robot.model
+    robot.rmbak = rmbak = robot.model
     robot.model,(robot.visual_model,robot.collision_model) = \
         pin.buildReducedModel(robot.model,[robot.visual_model,robot.collision_model],idx,robot.q0)
     if referenceConfigurationName is None:
@@ -64,7 +79,7 @@ def freeze(robot,key,referenceConfigurationName=None,rebuildData=True):
             cm.joint2_id = robot.model.getJointId(n2)
             # If some constraints are now useless, remove them
             # Todo: this might be overrestrictive
-            if cm.joint2_id==robot.model.njoints or cm.joint2_id==robot.model.njoints:
+            if cm.joint1_id==robot.model.njoints or cm.joint2_id==robot.model.njoints:
                 f1 = robot.model.frames[robot.model.getFrameId(n1)]
                 f2 = robot.model.frames[robot.model.getFrameId(n2)]
                 # Simple assert to raise an error when the TODO will become necessary
@@ -80,3 +95,92 @@ def freeze(robot,key,referenceConfigurationName=None,rebuildData=True):
 def renameConstraints(robot):
     for cm in robot.constraint_models:
         cm.name = f'{robot.model.names[cm.joint1_id]},{robot.model.names[cm.joint2_id]}'
+
+# List of joint string keys that should typically be locked
+classic_cassie_blocker = [
+    '-ip',
+    'right-roll-joint',
+    'right-yaw-joint',
+    'right-pitch-joint',
+    'right-knee-joint',
+    
+    #'right-achilles-spring-joint',
+    #'right-plantar-foot-joint',
+    
+    # Useless parallel spring in knee
+    #'right-knee-spring-joint',
+    #'right-knee-shin-joint',
+    #'right-shin-spring-joint',
+]
+classic_cassie_unecessary_constraints =\
+    [
+        'right-roll-joint,right-roll-op',
+        'right-yaw-joint,right-yaw-op',
+        'right-pitch-joint,right-pitch-op',
+        'right-knee-joint,right-knee-op',
+        'right-foot-joint,right-foot-op',
+
+    # Useless parallel spring in knee
+        #'right-shin-spring-joint,right-knee-spring-joint'
+    ]
+
+
+def fixCassieConstraints(cassie):
+    '''
+    Some constraints are unproperly define (why?). This hack fixes them. But we should 
+    understand why and make a better fix.
+    '''
+    i = cassie.model.getJointId('right-crank-rod-joint')
+    idx_q,idx_v = cassie.model.joints[i].idx_q,cassie.model.joints[i].idx_v
+    cassie.model.joints[i] = pin.JointModelSpherical()
+    cassie.model.joints[i].setIndexes(i,idx_q,idx_v)
+    j1 = cassie.model.joints[i]
+    ax1 = cassie.data.joints[j1.id].S[3:]
+    print(j1)
+    
+    i = cassie.model.getJointId('right-plantar-foot-joint')
+    cassie.model.joints[i] = pin.JointModelRZ()
+    cassie.model.joints[i].setIndexes(i,idx_q+4,idx_v+3)
+    cassie.data = cassie.model.createData()
+    j2 = cassie.model.joints[i]
+    print(j2)
+    
+    for nq in cassie.model.referenceConfigurations:
+        n,q = nq.key(),nq.data().copy()
+        print(n,j1,j1.id)
+        rot = pin.AngleAxis(q[j1.idx_q],ax1)
+        quat = pin.Quaternion(rot.matrix())
+        #pin.Quaternion(pin.utils.rotate('x', q[j1.idx_q])).coeffs()
+        cassie.model.referenceConfigurations[n][j1.idx_q:j1.idx_q+j1.nq] = quat.coeffs()
+        cassie.model.referenceConfigurations[n][j2.idx_q] = 0 #pin.Quaternion(pin.utils.rotate('x', q[j1.idx_q])).coeffs()
+        #np.arctan2(*((q[32:34]*2).tolist()))
+        
+    for cm in (cm for cm in cassie.constraint_models
+               if 'achilles-spring-joint' in cassie.model.names[cm.joint1_id]
+               and 'tarsus-spring-joint' in cassie.model.names[cm.joint2_id]):
+        print(f'Fix constraint {cm.name} ({cm})')
+        M1 = cm.joint1_placement.copy()
+        M2 = cm.joint2_placement.copy()
+        cm.joint1_placement = M2.inverse()  # M2 is Id, so inverse not needed, but I have the intuition it is more generic.
+        cm.joint2_placement = M1.inverse()
+        cm.type = pin.ContactType.CONTACT_3D
+    
+    for cm in (cm for cm in cassie.constraint_models
+               if 'shin-spring-joint' in cassie.model.names[cm.joint1_id]
+               and 'right-knee-spring-joint' in cassie.model.names[cm.joint2_id]):
+        print(f'Fix constraint {cm.name} ({cm})')
+        M1 = cm.joint1_placement.copy()
+        M2 = cm.joint2_placement.copy()
+        cm.joint1_placement = M2.inverse()
+        cm.joint2_placement = M1.inverse()
+        cm.type = pin.ContactType.CONTACT_3D
+
+    for cm in (cm for cm in cassie.constraint_models
+               if 'plantar-foot-joint' in cassie.model.names[cm.joint1_id]
+               and 'foot-op' in cassie.model.names[cm.joint2_id]):
+        print(f'Fix constraint {cm.name} ({cm})')
+        M1 = cm.joint1_placement.copy()
+        M2 = cm.joint2_placement.copy()
+        cm.joint1_placement = M2.inverse()
+        cm.joint2_placement = M1.inverse()
+        cm.type = pin.ContactType.CONTACT_3D
