@@ -28,7 +28,7 @@ class RobotFrame:
     def getConfiguration(self,verbose=True):
         values = [var.get() for var in self.slider_vars]
         dq = np.array(values)
-        print(dq)
+        # print(dq)
         q = pin.integrate(self.rmodel,self.q0,dq)
         return q
         
@@ -82,7 +82,7 @@ class RobotFrame:
         return frame
 
     def setRefresh(self,v=None):
-        print(' set ' ,v)
+        # print(' set ' ,v)
         if v is None:
             self.auto_refresh = not self.auto_refresh
         else:
@@ -104,6 +104,6 @@ class RobotFrame:
         auto_refresh_checkbox.pack(side=tk.LEFT, padx=10, pady=10)
 
     def checkboxCmd(self):
-        print(' autt' )
+        # print(' autt' )
         self.setRefresh(self.auto_refresh_var.get())
 
