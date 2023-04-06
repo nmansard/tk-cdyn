@@ -10,11 +10,15 @@ class RobotFrame:
     '''
     NROW = 6 # Number of sliders per row
     
-    def __init__(self,robotModel,q0,viz):
+    def __init__(self,robotModel,q0,viz,motors = []):
+        '''
+        motors is a list of joint names that must be highlighted in blue
+        '''
         self.rmodel = robotModel
         self.viz = viz
         self.auto_refresh = True
         self.q0 = q0.copy()
+        self.motors = motors
 
     def resetConfiguration(self,qref=None):
         if qref is not None:
@@ -48,7 +52,9 @@ class RobotFrame:
             for iv in range(self.rmodel.joints[j].nv):
                 var = tk.DoubleVar(value=0)
                 self.slider_vars.append(var)
-                slider_frame = tk.Frame(self.slidersFrame)
+                slider_frame = tk.Frame(self.slidersFrame,
+                                        highlightbackground="blue",
+                                        highlightthickness=2 if name in self.motors else 0)
                 row  =  iq // self.NROW
                 slider_frame.grid(row=row*2, column=iq-self.NROW*row, padx=5, pady=5)
                 name_i = name if self.rmodel.joints[j].nv==1 else name+f'{iv}'

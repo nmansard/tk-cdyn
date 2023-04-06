@@ -61,17 +61,52 @@ def freeze(robot,key,referenceConfigurationName=None,rebuildData=True):
     '''
     idx = [ i for i,n in enumerate(robot.model.names) if key in n] # to lock
     robot.rmbak = rmbak = robot.model
+    print('reduce')
     robot.model,(robot.visual_model,robot.collision_model) = \
         pin.buildReducedModel(robot.model,[robot.visual_model,robot.collision_model],idx,robot.q0)
+    print('q0')
     if referenceConfigurationName is None:
         del robot.q0
     else:
         robot.q0 = robot.model.referenceConfigurations[referenceConfigurationName]
+    print('rebuild')
     if rebuildData:
         robot.rebuildData()
     if hasattr(robot,'constraint_models'):
+        print('cmodel')
         toremove = []
         for cm in robot.constraint_models:
+            print(cm.name)
+            n1 = rmbak.names[cm.joint1_id]
+            n2 = rmbak.names[cm.joint2_id]
+
+            # The reference joints might have been frozen
+            # Then seek for the corresponding frame, that might be either a joint frame
+            # or a op frame. 
+            idf1 = robot.model.getFrameId(n1)
+            f1 = robot.model.frames[idf1]
+            idf2 = robot.model.getFrameId(n2)
+            f2 = robot.model.frames[idf2]
+
+            # Make the new reference joints the parent of the frame.
+            cm.joint1_id = f1.parentJoint
+            cm.joint2_id = f2.parentJoint
+            # In the best case, the joint still exist, then it corresponds to a joint frame
+            if f1.type != pin.JOINT:
+                assert(f1.type == pin.FIXED_JOINT)
+                # If the joint has be freezed, the contact now should be referenced with respect
+                # to the new joint, which was a parent of the previous.
+                cm.joint1_placement = f1.placement*cm.joint1_placement
+            # Same for the second joint
+            if f2.type != pin.JOINT:
+                assert(f2.type == pin.FIXED_JOINT)
+                cm.joint2_placement = f2.placement*cm.joint2_placement
+            
+            if cm.joint1_id == cm.joint2_id:
+                toremove.append(cm)
+                print(f'Remove constraint {n1}//{n2} (during freeze)')
+
+            '''
             # Convert previous indexes to new joint list (after some joints are frozen)
             n1 = rmbak.names[cm.joint1_id]
             n2 = rmbak.names[cm.joint2_id]
@@ -89,6 +124,7 @@ def freeze(robot,key,referenceConfigurationName=None,rebuildData=True):
                 assert(f1.parentJoint == f2.parentJoint)
                 toremove.append(cm)
                 print(f'Remove constraint {n1}//{n2}')
+            '''
         robot.constraint_models = [ cm for cm in robot.constraint_models if cm not in toremove ]
                 
                 
@@ -104,13 +140,17 @@ classic_cassie_blocker = [
     'right-pitch-joint',
     'right-knee-joint',
     
-    #'right-achilles-spring-joint',
-    #'right-plantar-foot-joint',
-    
+    'right-achilles-spring-joint',
+    'right-plantar-foot-joint',
+    'right-foot-joint',
+]
+cassie_spring_knee_joints = [
     # Useless parallel spring in knee
-    #'right-knee-spring-joint',
-    #'right-knee-shin-joint',
-    #'right-shin-spring-joint',
+    'right-knee-spring-joint',
+    'right-knee-shin-joint',
+    'right-shin-spring-joint',
+    #'right-shin-tarsus-joint',
+    'right-tarsus-spring-joint',
 ]
 classic_cassie_unecessary_constraints =\
     [
@@ -120,7 +160,7 @@ classic_cassie_unecessary_constraints =\
         'right-knee-joint,right-knee-op',
         'right-foot-joint,right-foot-op',
 
-    # Useless parallel spring in knee
+        # Useless parallel spring in knee
         #'right-shin-spring-joint,right-knee-spring-joint'
     ]
 

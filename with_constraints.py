@@ -5,7 +5,7 @@ import hppfcl
 import example_robot_data as robex
 import numpy as np
 
-from util_load_robots import defRootName,addXYZAxisToJoints,replaceGeomByXYZAxis,freeze,renameConstraints,classic_cassie_unecessary_constraints,classic_cassie_blocker,addXYZAxisToConstraints,fixCassieConstraints
+from util_load_robots import defRootName,addXYZAxisToJoints,replaceGeomByXYZAxis,freeze,renameConstraints,classic_cassie_unecessary_constraints,classic_cassie_blocker,addXYZAxisToConstraints,fixCassieConstraints,cassie_spring_knee_joints
 
 cassie=robex.load('cassie')
 fixCassieConstraints(cassie)
@@ -15,22 +15,21 @@ addXYZAxisToConstraints(cassie.model,cassie.visual_model,cassie.constraint_model
 cassie.constraint_models = [ cm for cm in cassie.constraint_models
                              if cm.name not in classic_cassie_unecessary_constraints ]
 freeze(cassie,'left','standing',rebuildData=False)
-for k in classic_cassie_blocker:
+for k in classic_cassie_blocker+cassie_spring_knee_joints:
+    print(f'Freeze {k}')
     assert(len([ n for n in cassie.model.names if k in n])>0)
     freeze(cassie,k,'standing',rebuildData=False)
 
 cassie.full_constraint_models = cassie.constraint_models
 cassie.full_constraint_datas = { cm: cm.createData() for cm in cassie.constraint_models }
-cassie.constraint_models = [ cm for cm in cassie.constraint_models
-                             if cm.name=='right-achilles-spring-joint,right-tarsus-spring-joint']
+#cassie.constraint_models = [ cm for cm in cassie.constraint_models
+#                             if cm.name=='right-achilles-spring-joint,right-tarsus-spring-joint']
 addXYZAxisToJoints(cassie.model,cassie.visual_model)
 cassie.rebuildData()
 cassie.initViewer(loadModel=True)
 replaceGeomByXYZAxis(cassie.visual_model,cassie.viz)
 cassie.display(cassie.q0)
 cassie.constraint_datas = [ cassie.full_constraint_datas[cm] for cm in cassie.constraint_models ]
-
-
 
 ### CONSTRAINTS
 
@@ -168,7 +167,8 @@ class RobotConstraintFrame(RobotFrame):
 root = tk.Tk()
 root.bind('<Escape>', lambda ev: root.destroy())
 root.title("Cassie")
-cassieFrame = RobotConstraintFrame(cassie.model,cassie.q0,cassie)
+cassieFrame = RobotConstraintFrame(cassie.model,cassie.q0,cassie,
+                                   motors = [ n for n in cassie.model.names if 'op' in n ])
 cassieFrame.createSlider(root)
 cassieFrame.createRefreshButons(root)
 
