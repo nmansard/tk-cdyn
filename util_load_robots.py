@@ -53,29 +53,31 @@ def replaceGeomByXYZAxis(vm,viz,prefix='XYZ_',visible=False):
             gv.addXYZaxis(gname,[1.,1,1.,1.],.01,.2)
             gv.setVisibility(gname,'OFF')
 
-def freeze(robot,indexToLock,referenceConfigurationName=None,rebuildData=True):
+def freeze(robot,indexToLock,referenceConfigurationName=None,rebuildData=True,verbose=True):
     '''
     Reduce the model by freezing all joint whose name contain the key string.
     robot: a robot wrapper where the result is stored (destructive mode)
     indexToLock: indexes of the joints to lock
+    referenceConfigurationName: if given, robot.q0 is set to the value of
+    robot.model.referenceConfigurations[referenceConfigurationName] after the reduction.
+    rebuildData: if true, robot.rebuildData() is called.
     '''
     robot.rmbak = rmbak = robot.model
-    print('reduce')
     robot.model,(robot.visual_model,robot.collision_model) = \
         pin.buildReducedModel(robot.model,[robot.visual_model,robot.collision_model],indexToLock,robot.q0)
-    print('q0')
+
     if referenceConfigurationName is None:
         del robot.q0
     else:
         robot.q0 = robot.model.referenceConfigurations[referenceConfigurationName]
-    print('rebuild')
+
     if rebuildData:
         robot.rebuildData()
+
     if hasattr(robot,'constraint_models'):
-        print('cmodel')
         toremove = []
         for cm in robot.constraint_models:
-            print(cm.name)
+            if verbose: print('Freeze: Reset the placement of constraint ',cm.name)
             n1 = rmbak.names[cm.joint1_id]
             n2 = rmbak.names[cm.joint2_id]
 
@@ -103,7 +105,7 @@ def freeze(robot,indexToLock,referenceConfigurationName=None,rebuildData=True):
             
             if cm.joint1_id == cm.joint2_id:
                 toremove.append(cm)
-                print(f'Remove constraint {n1}//{n2} (during freeze)')
+                if verbose: print(f'Freeze: Remove constraint {n1}//{n2} (during freeze)')
 
             '''
             # Convert previous indexes to new joint list (after some joints are frozen)
