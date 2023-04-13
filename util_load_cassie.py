@@ -127,7 +127,7 @@ def fixCassieConstraints(cassie,referenceConfigurationName=None,verbose=False):
         cm.type = pin.ContactType.CONTACT_3D
 
 
-def loadCassieAndFixIt(fixConstraints=True,initViewer=False,verbose=False):
+def loadCassieAndFixIt(fixConstraints=True,initViewer=False,verbose=False,forceXYZaxis=False):
     '''
     Load Cassie from example robot data, then fix the model errors, 
     freeze the unecessary joints, and load the model in the viewer.
@@ -173,9 +173,17 @@ def loadCassieAndFixIt(fixConstraints=True,initViewer=False,verbose=False):
     if initViewer:
         # Load the model in viewer
         cassie.initViewer(loadModel=True)
-        # Gepetto-viewer allow XYZaxis object that cannot be specified in the pinocchio geomtry model
-        # thus replace manually the visual objects in gepetto viewer by XYZaxis
-        replaceGeomByXYZAxis(cassie.visual_model,cassie.viz)
+        # Gepetto-viewer allow XYZaxis object that cannot be specified in the
+        # pinocchio geomtry model thus replace manually the visual objects in
+        # gepetto viewer by XYZaxis
+        if forceXYZaxis:
+            replaceGeomByXYZAxis(cassie.visual_model,cassie.viz)
+            print(
+                '''
+                !!! Beware that Gepetto viewer does not properly deallocating
+                its memory when calling this function. Try to limit the number
+                of time that this message is displayed
+                ''')
         # Force the initial display
         cassie.display(cassie.q0)
 

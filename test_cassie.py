@@ -12,7 +12,7 @@ from util_load_cassie import loadCassieAndFixIt
 import util_load_cassie as ulc
 import time
 
-WITH_DISP = False
+WITH_DISP = not False
 if not WITH_DISP:
     print('You should consider starting Gepetto Viewer')
 
@@ -27,7 +27,7 @@ print('Load basic cassie model (brok)')
 cassieBrok = loadCassieAndFixIt(fixConstraints=False,initViewer=WITH_DISP,verbose=True)
 # Fixed version, where the constraints have been replaced.
 print('Load cassie and fix it')
-cassie = loadCassieAndFixIt(initViewer=WITH_DISP,verbose=True)
+cassie = loadCassieAndFixIt(initViewer=WITH_DISP,verbose=True,forceXYZaxis=True)
 
 # Reference placement of the constraints, stored for comparison.
 # The following values have been obtain on nmansard's laptop with pinocchio installed from source
